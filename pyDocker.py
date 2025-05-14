@@ -19,8 +19,8 @@ def launch_containers():
     render_ids      = [128, 136, 144, 152, 160, 168, 176, 184]
     base_jupyter    = 5000
     base_vllm       = 8000
-    image           = "rocm/vllm:instinct_main"
-    model_volume    = {"/home/shepande/models": {"bind": "/models", "mode": "rw"}}
+    image           = "rocm/dev-ubuntu-22.04:6.3.4-complete"
+    model_volume    = {"/mnt/data": {"bind": "/data", "mode": "rw"}}
     common_devices  = [
         {"PathOnHost": "/dev/kfd", "PathInContainer": "/dev/kfd", "CgroupPermissions": "rwm"}
     ]
@@ -37,7 +37,7 @@ def launch_containers():
             "CgroupPermissions": "rwm"
         }]
 
-        env_vars = {"VLLM_PORT": str(vllm_port)}
+        env_vars = {"VLLM_PORT": str(vllm_port), "HF_HUB_CACHE": "/data/huggingface/hub"}
 
         try:
             print(f"[{name}] launching container…")
