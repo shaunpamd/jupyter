@@ -5,6 +5,8 @@ import subprocess
 import docker
 from docker.errors import APIError, ContainerError, ImageNotFound
 import argparse
+from urllib.parse import urlparse, unquote
+import os
 
 # Get your machine's public IP
 try:
@@ -25,6 +27,8 @@ def main():
     parser.add_argument("--env-vars", type=str, help="Comma seperated list of extra env vars")
     parser.add_argument("--jupyter-port", type=int, default=5000, help="Base port for Jupyter")
     parser.add_argument("--other-port", type=int, default=8000, help="Base port for other service, such as vLLM server")
+    parser.add_argument("--count", type=int, default=8, help="Base port for other service, such as vLLM server")
+    parser.add_argument("--notebook-url", type=str, help="Optional URL of notebook to open by default")
 
     # Parse the arguments
     args = parser.parse_args()
@@ -38,6 +42,10 @@ def parse_env_vars(env_vars_str):
         print("Error: Invalid format. Ensure each pair is in the format KEY=VALUE.")
         return {}
 
+def extract_file_name(url):
+    parsed_url = urlparse(url)
+    return unquote(os.path.basename(parsed_url.path))
+
 def launch_containers(args):
     client = docker.from_env()
     render_ids      = [128, 136, 144, 152, 160, 168, 176, 184]
@@ -50,8 +58,11 @@ def launch_containers(args):
     ]
     url_list = []
 
+    if args.count < 8:
+        render_ids = render_ids[:args.count]
+
     for idx, rid in enumerate(render_ids):
-        name         = f"{args.base_name}_dev_{rid}"
+        name         = f"{args.base_name}_lab_{rid}"
         jupyter_port = base_jupyter + 50 * idx
         vllm_port    = base_vllm    + 50 * idx
 
@@ -94,13 +105,30 @@ def launch_containers(args):
             )
             print(install_out.decode().strip())
 
-            # Start JupyterLab with BSD shell setting for terminals
+            # Download the workshop notebook
+            if args.notebook_url is not None:
+                print(f"[{name}] downloading workshop notebook…")
+                notebook = extract_file_name(args.notebook_url)
+                container.exec_run([
+                    "bash", "-c",
+                    "mkdir -p /workspace/workshop && "
+                    f"curl -sL {args.notebook_url} "
+                    f"-o /workspace/workshop/{notebook}"
+                ])
+
+            # Start JupyterLab with BSD shell setting for terminals and set default notebook
             print(f"[{name}] starting jupyter-lab on port {jupyter_port}…")
             terminado_flag = "--NotebookApp.terminado_settings='{\"shell_command\": [\"bash\",\"-l\"]}'"
+            if args.notebook_url is not None:
+                # TODO: not working
+                notebook = extract_file_name(args.notebook_url)
+                default_url = f"--NotebookApp.default_url=/workspace/workshop/{notebook}"
+            else:
+                default_url = ""
             cmd = (
                 f"nohup python3 -m jupyterlab "
                 f"--ip=0.0.0.0 --port={jupyter_port} --allow-root "
-                f"{terminado_flag} "
+                f"{terminado_flag} {default_url} "
                 f"> /workspace/jupyter-{jupyter_port}.log 2>&1 &"
             )
             container.exec_run(
